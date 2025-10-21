@@ -11,13 +11,13 @@ from datetime import datetime
 
 
 # 一般配置项
-uri = "ws://localhost:3001"  # 替换为你的 LLOneBot WebSocket 正向地址
+uri = " "  # 替换为你的 LLOneBot WebSocket 正向地址
 qq = " "  # 机器人的qq账号
-group_id = " " #群号
+group_id = " " # 群号
 my_api_key = " "  # ai回复的API_KEY
 my_base_url = " "  # 代理地址
-max_message = 15 #机器人消息记忆储存数额，越高token消耗越快
-robot_background = """ """ #机器人设定
+max_message = 5 # 机器人消息记忆储存数额，越高token消耗越快
+robot_background = "" "" # 发送的图片URL
 
 #创建一些要用到的变量
 ai_messages = [
@@ -62,15 +62,18 @@ async def main():  # 循环发送消息
                 print('邦邦卡邦，酪氨酸启动完成，ο(=•ω＜=)ρ⌒☆')
             check_and_clear_dk_list()#检查并清除字典
             #处理群一般消息
-            if receive_data.get('post_type') == 'message' and str(receive_data['group_id']) == group_id:
+            if (receive_data.get('post_type') == 'message' and
+                    receive_data.get('message_type') == 'group' and
+                    receive_data.get('group_id') and
+                    str(receive_data['group_id']) == group_id):
                 if 'message' in receive_data:
                     messages = receive_data['message']
                     if messages:
                         for i in range(0, len(messages)):  # 遍历消息段
                             if messages[i]['type'] == 'at' and messages[i]['data']['qq'] == qq:
 
-
-                                if receive_data['message'][i-1]['data']['text'].startswith(' #luck'):#luck指令
+                                if (receive_data['message'][i + 1].get('data') and receive_data['message'][i + 1].get('data').get('text') and
+                                    receive_data['message'][i + 1].get('data').get('text').startswith(' #luck')):#luck指令
                                     if any(user['user'] == receive_data['sender']['nickname']  for user in dk_list):
                                         length = get_user_length(receive_data['sender']['nickname'])
                                         echo = str(uuid.uuid4())
@@ -96,7 +99,8 @@ async def main():  # 循环发送消息
                                         }
                                         await websocket.send(json.dumps(data))
 
-                                elif receive_data['message'][i-1]['data']['text'].startswith(' #list_luck'):#list_luck指令
+                                elif (receive_data['message'][i + 1].get('data') and receive_data['message'][i + 1].get('data').get('text') and
+                                    receive_data['message'][i + 1].get('data').get('text').startswith(' #list_luck')):#list_luck指令
                                     if dk_list:
                                         #对dk_list内依据length大小进行排序
                                         dk_list.sort(key=lambda x: x['length'], reverse=True)
@@ -126,7 +130,8 @@ async def main():  # 循环发送消息
                                         }
                                         await websocket.send(json.dumps(data))
 
-                                elif receive_data['message'][i-1]['data']['text'].startswith(' #help'):#help指令
+                                elif (receive_data['message'][i + 1].get('data') and receive_data['message'][i + 1].get('data').get('text') and
+                                    receive_data['message'][i + 1].get('data').get('text').startswith(' #help')):#help指令
                                     echo = str(uuid.uuid4())
                                     data = {
                                         "action": "send_group_msg",
@@ -139,7 +144,8 @@ async def main():  # 循环发送消息
                                     await websocket.send(json.dumps(data))
 
 
-                                elif receive_data['message'][i-1]['data']['text'].startswith(' #like'):#like指令
+                                elif (receive_data['message'][i + 1].get('data') and receive_data['message'][i + 1].get('data').get('text') and
+                                    receive_data['message'][i + 1].get('data').get('text').startswith(' #like')):#like指令
                                     try:
                                         echo = str(uuid.uuid4())
                                         data = {
@@ -179,7 +185,7 @@ async def main():  # 循环发送消息
 
 
                                 else:#调用AI回答
-                                    message_text = await ai_respond(receive_data['sender']['nickname'], receive_data['message'][i - 1]['data']['text'])
+                                    message_text = await ai_respond(receive_data.get('sender').get('nickname'), receive_data.get('message')[i + 1]['data']['text'])
                                     echo = str(uuid.uuid4())
                                     data = {
                                         "action": "send_group_msg",
@@ -215,38 +221,64 @@ async def main():  # 循环发送消息
                         'echo': echo
                     }
                     await websocket.send(json.dumps(data))
-
-
+            if (receive_data.get('post_type') == 'notice' and receive_data.get('notice_type') == 'notify' #当收到戳一戳时发图片
+                    and receive_data.get('sub_type') == 'poke' and str(receive_data.get('target_id')) == qq
+                    and str(receive_data['group_id']) == group_id):
+                print("已触发图片发送")
+                echo = str(uuid.uuid4())
+                data = {
+                    "action": "send_group_msg",
+                    "params": {
+                        "group_id": group_id,
+                        "message":[{
+                            "type":"image",
+                            "data":{
+                                "file": image_url
+                            }
+                        }]
+                    },
+                    'echo': echo
+                }
+                await websocket.send(json.dumps(data))
 # 模拟ai回复,将用户的对话存入messages字典中
 async def ai_respond(user, content):
-    loop = asyncio.get_event_loop()
+    """模拟ai回复，将用户的对话存入messages字典中"""
+    if not content or not user:
+        return "酪氨酸没听清楚呢，能再说一遍吗喵？"
 
+    try:
+        loop = asyncio.get_event_loop()
 
-    def sync_ai_call():
-        client = OpenAI(
-            api_key=my_api_key,
-            base_url=my_base_url
-        )
+        def sync_ai_call():
+            client = OpenAI(
+                api_key=my_api_key,
+                base_url=my_base_url
+            )
 
-        ai_messages.append({'role': 'user', 'content': user + '说' + content})
+            ai_messages.append({'role': 'user', 'content': user + '说' + content})
 
-        response = client.chat.completions.create(
-            model="deepseek-v3",
-            messages=ai_messages,
-            stream=False
-        )
+            response = client.chat.completions.create(
+                model="deepseek-v3",
+                messages=ai_messages,
+                stream=False
+            )
 
-        #将AI所说的话添加到消息列表
-        assistant_message = response.choices[0].message.content
-        ai_messages.append({'role': 'assistant', 'content':assistant_message})
+            # 将AI所说的话添加到消息列表
+            assistant_message = response.choices[0].message.content
+            ai_messages.append({'role': 'assistant', 'content': assistant_message})
 
-        #当信息列表超过15时，删除除设定外的最早两条信息
-        if len(ai_messages) > max_message:
-            del ai_messages[1:3]
+            # 当信息列表超过限制时，删除除设定外的最早两条信息
+            if len(ai_messages) > max_message:
+                del ai_messages[1:3]
 
-        return response.choices[0].message.content
+            return response.choices[0].message.content
 
-    return await loop.run_in_executor(None, sync_ai_call)
+        return await loop.run_in_executor(None, sync_ai_call)
+
+    except Exception as e:
+        print(f'AI调用失败: {e}')
+        return "酪氨酸现在有点忙，待会再陪你聊天喵~ (。・ω・。)"
+
 
 # 幸运dk函数
 def dk(sender):
@@ -285,4 +317,5 @@ def help_order():
              #list_luck:查询今日幸运榜单
              #like:给个人资料点赞喵"""
     return order
+
 asyncio.run(main())
